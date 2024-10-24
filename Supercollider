@@ -1,0 +1,217 @@
+(
+OSCdef(\occupancyListener).free;
+Server.default.freeAll;
+
+Server.default.waitForBoot({
+   
+    ~state = Dictionary.new;
+    ~players = Dictionary.new;
+   
+    "Creating SynthDefs...".postln;
+   
+    SynthDef(\polyPerc, {
+        arg freq = 400, amp = 0.3, pan = 0, decay = 0.1, noiseMix = 0.1;
+        var sig, env, noise;
+        env = EnvGen.kr(Env.perc(0.005, decay, curve: -4), doneAction: 2);
+        sig = SinOsc.ar(freq);
+        noise = WhiteNoise.ar * noiseMix;
+        sig = (sig + noise) * env * amp;
+        sig = Pan2.ar(sig, pan);
+        Out.ar(0, sig);
+    }).add;
+
+    SynthDef(\bell, {
+        arg freq = 400, amp = 0.3, pan = 0, decay = 1.0;
+        var sig, env, modulator;
+        env = EnvGen.kr(Env.perc(0.005, decay, curve: -4), doneAction: 2);
+        modulator = SinOsc.ar(freq * 2.1);
+        sig = SinOsc.ar(freq + (modulator * 50));
+        sig = sig * env * amp;
+        sig = Pan2.ar(sig, pan);
+        Out.ar(0, sig);
+    }).add;
+
+    SynthDef(\plucky, { |freq=440, amp=0.3, pan=0|
+        var sig, env;
+        env = EnvGen.kr(Env.perc(0.01, 0.2), doneAction: 2);
+        sig = Saw.ar(freq) * env * amp;
+        sig = LPF.ar(sig, XLine.kr(freq*4, freq*2, 0.1));
+        Out.ar(0, Pan2.ar(sig, pan));
+    }).add;
+
+    SynthDef(\deepPulse, { |freq=110, amp=0.4, pan=0|
+        var sig, env;
+        env = EnvGen.kr(Env.perc(0.05, 0.8), doneAction: 2);
+        sig = SinOsc.ar(freq) + (LPF.ar(Pulse.ar(freq/2), freq) * 0.3);
+        sig = sig * env * amp;
+        Out.ar(0, Pan2.ar(sig, pan));
+    }).add;
+
+    SynthDef(\metal, { |freq=880, amp=0.2, pan=0|
+        var sig, env, mod;
+        env = EnvGen.kr(Env.perc(0.001, 0.3), doneAction: 2);
+        mod = SinOsc.ar(freq * 4) * 200;
+        sig = SinOsc.ar(freq + mod) + SinOsc.ar(freq * 2.1 + mod);
+        sig = HPF.ar(sig, 200);
+        sig = sig * env * amp;
+        Out.ar(0, Pan2.ar(sig, pan));
+    }).add;
+
+    SynthDef(\pad, { |freq=220, amp=0.3, pan=0|
+        var sig, env;
+        env = EnvGen.kr(Env.perc(0.1, 1.5), doneAction: 2);
+        sig = SinOsc.ar([freq, freq*1.01]) * env * amp;
+        sig = LPF.ar(sig, XLine.kr(freq*8, freq*2, 0.3));
+        Out.ar(0, Splay.ar(sig));
+    }).add;
+
+    Server.default.sync;
+    "SynthDefs created successfully".postln;
+
+    // Create pattern dictionary with your original patterns
+    ~patterns = Dictionary.new;
+   
+    ~patterns.add(\g7 -> Pbind(\instrument, \deepPulse,
+        \freq, Pseq([36, 41, 43, 48].midicps, inf),
+        \dur, Pseq([0.6, 0.4], inf),
+        \amp, 0.6
+    ));
+
+    ~patterns.add(\g5 -> Pbind(\instrument, \pad,
+        \freq, Pseq([48, 52, 55, 60].midicps, inf),
+        \dur, Pseq([1.0, 0.5, 0.5], inf),
+        \amp, 0.3
+    ));
+
+    ~patterns.add(\g3 -> Pbind(\instrument, \plucky,
+        \freq, Pseq([55, 60, 62, 64].midicps, inf),
+        \dur, Pseq([0.75, 0.25], inf),
+        \amp, 0.5
+    ));
+
+    ~patterns.add(\g1 -> Pbind(\instrument, \polyPerc,
+        \freq, Pseq([60, 65, 67, 69].midicps, inf),
+        \dur, Pseq([0.25, 0.25, 0.5], inf),
+        \amp, 0.4
+    ));
+
+    ~patterns.add(\g2 -> Pbind(\instrument, \metal,
+        \freq, Pseq([72, 69, 67, 65].midicps, inf),
+        \dur, Pseq([0.3, 0.3, 0.4], inf),
+        \amp, 0.01
+    ));
+
+    ~patterns.add(\g4 -> Pbind(\instrument, \bell,
+        \freq, Pseq([67, 72, 74, 76, 74, 67, 72, 74, 67, 69, 71, 67, 64].midicps, inf),
+        \dur, Pseq([0.166666, 0.166666, 0.166666], inf),
+        \amp, 0.3
+    ));
+
+    OSCdef(\occupancyListener, {|msg, time, addr, recvPort|
+        var occupancy = msg[1].asInteger;
+        "Received occupancy: %".format(occupancy).postln;
+       
+        if(occupancy >= 2) {
+            if(~state[\g7] != true) {
+                "Starting g7 pattern".postln;
+                ~players[\g7] = ~patterns[\g7].play;
+                ~state[\g7] = true;
+            }
+        } {
+            if(~state[\g7] == true) {
+                "Stopping g7 pattern".postln;
+                ~players[\g7].stop;
+                ~state[\g7] = false;
+            }
+        };
+       
+        if(occupancy >= 4) {
+            if(~state[\g5] != true) {
+                "Starting g5 pattern".postln;
+                ~players[\g5] = ~patterns[\g5].play;
+                ~state[\g5] = true;
+            }
+        } {
+            if(~state[\g5] == true) {
+                "Stopping g5 pattern".postln;
+                ~players[\g5].stop;
+                ~state[\g5] = false;
+            }
+        };
+
+        if(occupancy >= 6) {
+            if(~state[\g3] != true) {
+                "Starting g3 pattern".postln;
+                ~players[\g3] = ~patterns[\g3].play;
+                ~state[\g3] = true;
+            }
+        } {
+            if(~state[\g3] == true) {
+                "Stopping g3 pattern".postln;
+                ~players[\g3].stop;
+                ~state[\g3] = false;
+            }
+        };
+
+        if(occupancy >= 8) {
+            if(~state[\g1] != true) {
+                "Starting g1 pattern".postln;
+                ~players[\g1] = ~patterns[\g1].play;
+                ~state[\g1] = true;
+            }
+        } {
+            if(~state[\g1] == true) {
+                "Stopping g1 pattern".postln;
+                ~players[\g1].stop;
+                ~state[\g1] = false;
+            }
+        };
+
+        if(occupancy >= 10) {
+            if(~state[\g2] != true) {
+                "Starting g2 pattern".postln;
+                ~players[\g2] = ~patterns[\g2].play;
+                ~state[\g2] = true;
+            }
+        } {
+            if(~state[\g2] == true) {
+                "Stopping g2 pattern".postln;
+                ~players[\g2].stop;
+                ~state[\g2] = false;
+            }
+        };
+
+        if(occupancy >= 12) {
+            if(~state[\g4] != true) {
+                "Starting g4 pattern".postln;
+                ~players[\g4] = ~patterns[\g4].play;
+                ~state[\g4] = true;
+            }
+        } {
+            if(~state[\g4] == true) {
+                "Stopping g4 pattern".postln;
+                ~players[\g4].stop;
+                ~state[\g4] = false;
+            }
+        };
+    }, '/occupancy');
+
+    ~cleanup = {
+        ~players.do({ |player|
+            if(player.notNil) { player.stop }
+        });
+        ~players.clear;
+        ~state.clear;
+        "Cleaned up all patterns and reset state".postln;
+    };
+
+    CmdPeriod.doOnce(~cleanup);
+    "System initialized and ready!".postln;
+    "Listening for OSC messages on port 57120".postln;
+});
+)
+
+// Test commands:
+// n = NetAddr("127.0.0.1", 57120);
+// n.sendMsg('/occupancy', 1);  
+// n.sendMsg('/occupancy', -1); 
