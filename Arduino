@@ -1,0 +1,108 @@
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <OSCMessage.h>
+
+const char* ssid = "yale wireless"; 
+const char* password = ""; 
+
+const IPAddress outIp(10, 67, 64, 222); 
+const unsigned int outPort = 57120; 
+WiFiUDP Udp;
+
+int occupancy = 0; 
+bool ldr1PrevState = HIGH; 
+bool ldr2PrevState = HIGH; 
+bool occupancyChanged = false; 
+
+void setup() {
+  Serial.begin(9600);
+  delay(100); 
+  
+  Serial.println("\n\n=== Starting ESP32 Occupancy Counter ===");
+  
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(ssid, password); 
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.println("WiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("Sending OSC to: ");
+  Serial.print(outIp);
+  Serial.print(" Port: ");
+  Serial.println(outPort);
+  
+ 
+  Udp.begin(8888);
+  Serial.println("UDP Started on port 8888");
+  Serial.println("System Ready!");
+  Serial.println("=====================================");
+}
+
+void loop() {
+  if (occupancyChanged) {
+    delay(1500);
+    occupancyChanged = false;
+  } else {
+    int ldr1Value = analogRead(34); 
+    int ldr2Value = analogRead(35); 
+
+    bool ldr1IsLow = ldr1Value < 1;
+    bool ldr2IsLow = ldr2Value < 1;
+
+    static int lastLdr1 = -1;
+    static int lastLdr2 = -1;
+    if (abs(ldr1Value - lastLdr1) > 10 || abs(ldr2Value - lastLdr2) > 10) {
+      Serial.print("Sensors: LDR1=");
+      Serial.print(ldr1Value);
+      Serial.print(" LDR2=");
+      Serial.print(ldr2Value);
+      Serial.print(" Occupancy=");
+      Serial.println(occupancy);
+      lastLdr1 = ldr1Value;
+      lastLdr2 = ldr2Value;
+    }
+
+    if (ldr1IsLow && !ldr1PrevState) {
+      occupancy++;
+      Serial.println("▲ Occupancy increased to: " + String(occupancy));
+      occupancyChanged = true;
+    }
+
+    if (ldr2IsLow && !ldr2PrevState) {
+      if (occupancy > 0) {
+        occupancy--;
+        Serial.println("▼ Occupancy decreased to: " + String(occupancy));
+        occupancyChanged = true;
+      }
+    }
+
+    
+    if (occupancyChanged) {
+      if (WiFi.status() == WL_CONNECTED) {
+        OSCMessage msg("/occupancy");
+        int32_t oscValue = (int32_t)occupancy;
+        msg.add(oscValue);
+        
+        Udp.beginPacket(outIp, outPort);
+        msg.send(Udp);
+        Udp.endPacket();
+        msg.empty();
+        
+        Serial.println("→ Sent OSC message: " + String(oscValue));
+      } else {
+        Serial.println("❌ WiFi disconnected - attempting reconnection");
+        WiFi.begin(ssid, password);
+      }
+    }
+
+    ldr1PrevState = ldr1IsLow;
+    ldr2PrevState = ldr2IsLow;
+  }
+
+  delay(100);
+}
